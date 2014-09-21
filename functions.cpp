@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cctype>
 #include <sstream>
+#include <string>
 #include <iomanip>
 #include <iostream>
 
@@ -919,6 +920,14 @@ namespace Sass {
     Signature length_sig = "length($list)";
     BUILT_IN(length)
     {
+      Expression* v = ARG("$list", Expression);
+      if (v->concrete_type() == Expression::MAP) {
+        Map* map = dynamic_cast<Map*>(env["$list"]);
+        return new (ctx.mem) Number(path,
+                                    position,
+                                    map ? map->length() : 1);
+      }
+
       List* list = dynamic_cast<List*>(env["$list"]);
       return new (ctx.mem) Number(path,
                                   position,
@@ -1054,6 +1063,129 @@ namespace Sass {
         Boolean* ith = dynamic_cast<Boolean*>(arglist->value_at_index(i));
         if (ith && ith->value() == false) continue;
         *result << arglist->value_at_index(i);
+      }
+      return result;
+    }
+
+    /////////////////
+    // MAP FUNCTIONS
+    /////////////////
+
+    Signature map_get_sig = "map-get($map, $key)";
+    BUILT_IN(map_get)
+    {
+      Expression* m = ARG("$map", Expression);
+      Expression* v = ARG("$key", Expression);
+      if (!(m->concrete_type() == Expression::MAP || m->concrete_type() == Expression::LIST)) {
+        error("$map: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map = dynamic_cast<Map*>(env["$map"]);
+      if (!map || map->empty()) return new (ctx.mem) Null(path, position);
+      for (size_t i = 0, L = map->length(); i < L; ++i) {
+        if (eq((*map)[i]->key(), v, ctx)) return map->value_at_index(i);
+      }
+      return new (ctx.mem) Null(path, position);
+    }
+
+    Signature map_has_key_sig = "map-has-key($map, $key)";
+    BUILT_IN(map_has_key)
+    {
+      Expression* m = ARG("$map", Expression);
+      Expression* v = ARG("$key", Expression);
+      if (!(m->concrete_type() == Expression::MAP || m->concrete_type() == Expression::LIST)) {
+        error("$map: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map = dynamic_cast<Map*>(env["$map"]);
+      if (!map || map->empty()) return new (ctx.mem) Boolean(path, position, false);
+      for (size_t i = 0, L = map->length(); i < L; ++i) {
+        if (eq((*map)[i]->key(), v, ctx)) return new (ctx.mem) Boolean(path, position, true);
+      }
+      return new (ctx.mem) Boolean(path, position, false);
+    }
+
+    Signature map_keys_sig = "map-keys($map)";
+    BUILT_IN(map_keys)
+    {
+      Expression* m = ARG("$map", Expression);
+      if (!(m->concrete_type() == Expression::MAP || m->concrete_type() == Expression::LIST)) {
+        error("$map: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map = dynamic_cast<Map*>(env["$map"]);
+      List* result = new (ctx.mem) List(path, position, 1, List::COMMA);
+      if (!map || map->empty()) return result;
+      for (size_t i = 0, L = map->length(); i < L; ++i) {
+        *result << (*map)[i]->key();
+      }
+      return result;
+    }
+
+    Signature map_values_sig = "map-values($map)";
+    BUILT_IN(map_values)
+    {
+      Expression* m = ARG("$map", Expression);
+      if (!(m->concrete_type() == Expression::MAP || m->concrete_type() == Expression::LIST)) {
+        error("$map: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map = dynamic_cast<Map*>(env["$map"]);
+      List* result = new (ctx.mem) List(path, position, 1, List::COMMA);
+      if (!map || map->empty()) return result;
+      for (size_t i = 0, L = map->length(); i < L; ++i) {
+        *result << (*map)[i]->value();
+      }
+      return result;
+    }
+
+    Signature map_merge_sig = "map-merge($map1, $map2)";
+    BUILT_IN(map_merge)
+    {
+      Expression* m1 = ARG("$map1", Expression);
+      Expression* m2 = ARG("$map2", Expression);
+      if (!(m1->concrete_type() == Expression::MAP || m1->concrete_type() == Expression::LIST)) {
+        error("$map1: is not a map for `" + string(sig) + "`", path, position);
+      }
+      if (!(m2->concrete_type() == Expression::MAP || m2->concrete_type() == Expression::LIST)) {
+        error("$map2: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map1 = dynamic_cast<Map*>(env["$map1"]);
+      Map* map2 = dynamic_cast<Map*>(env["$map2"]);
+      if (!map1) map1 = new (ctx.mem) Map(path, position, 1);
+      if (!map2) map2 = new (ctx.mem) Map(path, position, 1);
+
+      size_t len = map1->length() + map2->length();
+      Map* result = new (ctx.mem) Map(path, position, len);
+      *result += map1;
+      *result += map2;
+      return result;
+    }
+
+    Signature map_remove_sig = "map-remove($map, $key)";
+    BUILT_IN(map_remove)
+    {
+      Expression* m = ARG("$map", Expression);
+      Expression* v = ARG("$key", Expression);
+      if (!(m->concrete_type() == Expression::MAP || m->concrete_type() == Expression::LIST)) {
+        error("$map: is not a map for `" + string(sig) + "`", path, position);
+      }
+      Map* map = dynamic_cast<Map*>(env["$map"]);
+      Map* result = new (ctx.mem) Map(path, position, 1);
+      for (size_t i = 0, L = map->length(); i < L; ++i) {
+        if (!eq((*map)[i]->key(), v, ctx)) *result << (*map)[i];
+      }
+      return result;
+    }
+
+    Signature keywords_sig = "keywords($args)";
+    BUILT_IN(keywords)
+    {
+      List* arglist = new (ctx.mem) List(*ARG("$args", List));
+      Map* result = new (ctx.mem) Map(path, position, 1);
+      for (size_t i = 0, L = arglist->length(); i < L; ++i) {
+        string name = string(((Argument*)(*arglist)[i])->name());
+        string sanitized_name = string(name, 1);
+        *result << new (ctx.mem) KeyValuePair(path,
+                                              position,
+                                              new (ctx.mem) String_Constant(path, position, sanitized_name),
+                                              ((Argument*)(*arglist)[i])->value());
       }
       return result;
     }
